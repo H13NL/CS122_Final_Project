@@ -1,0 +1,11 @@
+.venv/
+.env
+__pycache__/
+*.py[cod]
+db.sqlite3
+out/*
+logs/*
+data/*.csv
+data/**/*.csv
+!data/samples/
+!data/samples/sample_1k.csv
