@@ -1,5 +1,0 @@
-google-api-python-client
-python-dotenv
-Django
-pandas
-plotly
