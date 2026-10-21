@@ -1,0 +1,24 @@
+[project]
+name = "cs122-final-project"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "javacadu", email = "jacobatanacio@proton.me" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "django>=6.1.2",
+    "google-api-python-client>=2.201.0",
+    "numpy>=2.5.4",
+    "pandas>=3.0.6",
+    "plotly>=7.1.0",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+cs122-final-project = "cs122_final_project:main"
+
+[build-system]
+requires = ["uv_build>=0.12.9,<0.13.0"]
+build-backend = "uv_build"
