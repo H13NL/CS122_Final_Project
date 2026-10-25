@@ -8,6 +8,7 @@ __pycache__/
 build/
 dist/
 wheels/
+/out/
 
 # Virtual environments (uv creates .venv)
 .venv/
