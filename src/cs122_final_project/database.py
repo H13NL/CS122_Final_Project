@@ -43,7 +43,7 @@ SCHEMA = (
         email TEXT,
         PRIMARY KEY (channel_id)
     )""",
-        """CREATE TABLE IF NOT EXISTS videos (
+    """CREATE TABLE IF NOT EXISTS videos (
         video_id TEXT NOT NULL,
         channel_id TEXT NOT NULL,
         title TEXT,
@@ -77,7 +77,7 @@ SCHEMA = (
         FOREIGN KEY (video_id)
             REFERENCES videos (video_id)
     )""",
-        """CREATE TABLE IF NOT EXISTS keywords (
+    """CREATE TABLE IF NOT EXISTS keywords (
         video_id TEXT NOT NULL,
         keyword TEXT NOT NULL,
         family TEXT NOT NULL,
@@ -93,6 +93,7 @@ class Database:
     def __init__(self, path: str = "database.db") -> None:
         self.path = path
         self.con = sqlite3.connect(self.path)
+        self.con.row_factory = sqlite3.Row
         self.con.execute("PRAGMA foreign_keys = 1")
         self.c = self.con.cursor()
 
