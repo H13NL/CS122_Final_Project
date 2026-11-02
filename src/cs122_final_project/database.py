@@ -215,7 +215,8 @@ class Database:
             (keyword, family, comment_count)
 
         summary:
-            Dictionary containing the keys in SUMMARY_KEYS.
+            Dictionary containing the keys in SUMMARY_KEYS. The value in
+            avg_sentiment is also written to videos.sentiment_score.
         """
 
         values = [summary[key] for key in SUMMARY_KEYS]
@@ -224,6 +225,7 @@ class Database:
             """
             UPDATE videos
             SET
+                sentiment_score = ?,
                 comments_analyzed = ?,
                 avg_sentiment = ?,
                 positive_ratio = ?,
@@ -231,7 +233,7 @@ class Database:
                 sentiment_bin = ?
             WHERE video_id = ?
             """,
-            (*values, video_id),
+            (summary["avg_sentiment"], *values, video_id),
         )
 
         if cursor.rowcount == 0:
@@ -281,6 +283,26 @@ class Database:
         """Execute a query and return rows as dictionaries."""
         rows = self.con.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+    def delete_video(self, video_id: str) -> None:
+        """Delete a video and all rows that depend on it."""
+        self.con.execute(
+            "DELETE FROM comments WHERE video_id = ?",
+            (video_id,),
+        )
+        self.con.execute(
+            "DELETE FROM keywords WHERE video_id = ?",
+            (video_id,),
+        )
+        self.con.execute(
+            "DELETE FROM video_keywords WHERE video_id = ?",
+            (video_id,),
+        )
+        self.con.execute(
+            "DELETE FROM videos WHERE video_id = ?",
+            (video_id,),
+        )
+        self.con.commit()
 
     def has_video(self, video_id: str) -> bool:
         """Return True if the video exists."""

@@ -3,3 +3,7 @@
 2026-10-19 20:21:33,516 - INFO - file_cache is only supported with oauth2client<4.0.0
 2026-10-19 20:21:33,518 - INFO - YouTube API client created successfully
 2026-10-19 20:22:02,122 - INFO - Collected video Ks-_Mh1QhMc (channel UCAuUUnT6oDeKwE6v1NGQxug) with 100 comments
+2026-11-02 10:43:32,175 - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-11-02 10:43:32,177 - INFO - YouTube API client created successfully
+2026-11-02 10:43:33,109 - INFO - Saved sentiment for video Ks-_Mh1QhMc: neutral (0.0636)
+2026-11-02 10:43:33,109 - INFO - Collected video Ks-_Mh1QhMc (channel UCAuUUnT6oDeKwE6v1NGQxug) with 100 comments and 25 keywords; sentiment neutral (0.0636)

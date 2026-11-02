@@ -14,6 +14,8 @@ dependencies = [
     "pandas>=3.0.6",
     "plotly>=7.1.0",
     "python-dotenv>=1.2.4",
+    "rake-nltk>=1.0.6",
+    "textblob>=0.20.1",
 ]
 
 [project.scripts]
