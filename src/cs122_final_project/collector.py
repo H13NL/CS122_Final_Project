@@ -9,6 +9,7 @@ from .channel import Channel
 from .comments import Comment
 from .video import Video
 from .database import Database
+from .keywords import extract_keywords
 
 MAX_COMMENTS_PER_VIDEO = 100
 
@@ -110,24 +111,31 @@ def main() -> None:
 
     video_id = input("Enter YouTube video ID: ").strip()
 
-    video = fetch_video(video_id, youtube)
-    if not video:
-        logger.error("Failed to fetch video %s", video_id)
-        return
-
-    channel = get_channel_by_id(video.channel_id, youtube)
-
     with Database() as db:
+        if db.has_video(video_id):
+            logger.info("Video %s already collected; skipping", video_id)
+            return
+
+        video = fetch_video(video_id, youtube)
+        if not video:
+            logger.error("Failed to fetch video %s", video_id)
+            return
+
+        channel = get_channel_by_id(video.channel_id, youtube)
+        keywords = extract_keywords(video.video_id, video.comments)
+
         if channel:
             db.insert_channel(channel)
         db.insert_video(video)
         db.insert_many(comments=video.comments)
+        db.insert_video_keywords(keywords)
 
     logger.info(
-        "Collected video %s (channel %s) with %d comments",
+        "Collected video %s (channel %s) with %d comments and %d keywords",
         video.video_id,
         video.channel_id,
         len(video.comments),
+        len(keywords),
     )
 
 
