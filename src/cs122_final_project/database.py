@@ -14,6 +14,7 @@ from typing import Iterable, Optional
 
 from .channel import Channel
 from .comments import Comment
+from .keywords import Keyword
 from .video import Video
 
 SENTIMENT_LABELS = ("positive", "negative", "neutral")
@@ -82,6 +83,15 @@ SCHEMA = (
         keyword TEXT NOT NULL,
         family TEXT NOT NULL,
         comment_count INTEGER NOT NULL,
+        PRIMARY KEY (video_id, keyword),
+        FOREIGN KEY (video_id)
+            REFERENCES videos (video_id)
+    )""",
+    """CREATE TABLE IF NOT EXISTS video_keywords (
+        video_id TEXT NOT NULL,
+        keyword TEXT NOT NULL,
+        score REAL NOT NULL,
+        rank INTEGER NOT NULL,
         PRIMARY KEY (video_id, keyword),
         FOREIGN KEY (video_id)
             REFERENCES videos (video_id)
@@ -173,6 +183,19 @@ class Database:
             self.insert_comment(comment)
         self.con.commit()
 
+    def insert_video_keywords(self, keywords: Iterable[Keyword]) -> None:
+        """Store RAKE phrases for one or more videos."""
+        self.con.executemany(
+            """INSERT OR REPLACE INTO video_keywords
+               (video_id, keyword, score, rank)
+               VALUES (?, ?, ?, ?)""",
+            [
+                (keyword.video_id, keyword.phrase, keyword.score, keyword.rank)
+                for keyword in keywords
+            ],
+        )
+        self.con.commit()
+
     def save_analysis(
         self,
         video_id: str,
@@ -192,7 +215,8 @@ class Database:
             (keyword, family, comment_count)
 
         summary:
-            Dictionary containing the keys in SUMMARY_KEYS.
+            Dictionary containing the keys in SUMMARY_KEYS. The value in
+            avg_sentiment is also written to videos.sentiment_score.
         """
 
         values = [summary[key] for key in SUMMARY_KEYS]
@@ -201,6 +225,7 @@ class Database:
             """
             UPDATE videos
             SET
+                sentiment_score = ?,
                 comments_analyzed = ?,
                 avg_sentiment = ?,
                 positive_ratio = ?,
@@ -208,7 +233,7 @@ class Database:
                 sentiment_bin = ?
             WHERE video_id = ?
             """,
-            (*values, video_id),
+            (summary["avg_sentiment"], *values, video_id),
         )
 
         if cursor.rowcount == 0:
@@ -259,6 +284,26 @@ class Database:
         rows = self.con.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
+    def delete_video(self, video_id: str) -> None:
+        """Delete a video and all rows that depend on it."""
+        self.con.execute(
+            "DELETE FROM comments WHERE video_id = ?",
+            (video_id,),
+        )
+        self.con.execute(
+            "DELETE FROM keywords WHERE video_id = ?",
+            (video_id,),
+        )
+        self.con.execute(
+            "DELETE FROM video_keywords WHERE video_id = ?",
+            (video_id,),
+        )
+        self.con.execute(
+            "DELETE FROM videos WHERE video_id = ?",
+            (video_id,),
+        )
+        self.con.commit()
+
     def has_video(self, video_id: str) -> bool:
         """Return True if the video exists."""
         row = self.con.execute(
@@ -266,6 +311,20 @@ class Database:
             SELECT 1
             FROM videos
             WHERE video_id = ?
+            """,
+            (video_id,),
+        ).fetchone()
+
+        return row is not None
+
+    def has_video_keywords(self, video_id: str) -> bool:
+        """Return True if RAKE phrases exist for the video."""
+        row = self.con.execute(
+            """
+            SELECT 1
+            FROM video_keywords
+            WHERE video_id = ?
+            LIMIT 1
             """,
             (video_id,),
         ).fetchone()
@@ -424,6 +483,27 @@ class Database:
         sql += """
             ORDER BY comment_count DESC, keyword ASC
         """
+
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+
+        return self._query(sql, tuple(params))
+
+    def get_video_keywords(
+        self,
+        video_id: str,
+        limit: Optional[int] = None,
+    ) -> list:
+        """Return RAKE phrases for a video in rank order."""
+        sql = """
+            SELECT keyword, score, rank
+            FROM video_keywords
+            WHERE video_id = ?
+            ORDER BY rank ASC
+        """
+
+        params = [video_id]
 
         if limit is not None:
             sql += " LIMIT ?"
