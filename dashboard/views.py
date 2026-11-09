@@ -1,11 +1,20 @@
+import logging
 from django.shortcuts import render
 from django.conf import settings
 from django.shortcuts import redirect, render
-
+from django.conf import settings
+from django.shortcuts import redirect, render
 from cs122_final_project.comments import Comment
 from cs122_final_project.database import Database
 from cs122_final_project.sentimentAnalysis import save_video_sentiment
 from cs122_final_project.collector import collect_video
+from cs122_final_project.collector import (
+    collect_video,
+    extract_video_id,
+)
+
+logger = logging.getLogger(__name__)
+
 
 # Create your views here.
 DATABASE_PATH = settings.BASE_DIR / "database.db"
@@ -21,9 +30,9 @@ def fetch_video(request):
     if request.method != "POST":
         return redirect("home")
 
-    url = request.POST.get("url", "").strip()
+    value = request.POST.get("url", "").strip()
 
-    if not url:
+    if not value:
         return render(
             request,
             "dashboard/home.html",
@@ -33,7 +42,8 @@ def fetch_video(request):
         )
 
     try:
-        video_id = collect_video(url)
+        video_id = extract_video_id(value)
+        collect_video(video_id, logger)
 
     except ValueError as exc:
         return render(
