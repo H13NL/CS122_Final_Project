@@ -157,25 +157,7 @@ def create_youtube_client(logger: logging.Logger):
     logger.info("YouTube API client created successfully")
     return client
 
-
-def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.FileHandler("logs/collector.log"),
-            logging.StreamHandler(),
-        ],
-    )
-    logger = logging.getLogger(__name__)
-
-    try:
-        video_id = prompt_for_video_id()
-    except (EOFError, KeyboardInterrupt):
-        print()
-        logger.info("Collection cancelled")
-        return
-
+def collect_video(video_id: str, logger: logging.Logger,) -> None:
     youtube = create_youtube_client(logger)
 
     with Database() as db:
@@ -212,6 +194,26 @@ def main() -> None:
         sentiment.sentiment,
         sentiment.score,
     )
+
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.FileHandler("logs/collector.log"),
+            logging.StreamHandler(),
+        ],
+    )
+    logger = logging.getLogger(__name__)
+
+    try:
+        video_id = prompt_for_video_id()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        logger.info("Collection cancelled")
+        return
+
+    collect_video(video_id, logger)
 
 
 if __name__ == "__main__":
