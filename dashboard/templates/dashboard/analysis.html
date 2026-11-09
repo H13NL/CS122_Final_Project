@@ -1,0 +1,93 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+
+{% if error %}
+
+    <h2>{{ error }}</h2>
+
+{% else %}
+
+    <h1>Video Analysis</h1>
+
+    <h2>{{ video.title }}</h2>
+
+    <p>
+        <strong>Video ID:</strong>
+        {{ video.video_id }}
+    </p>
+
+    <section class="video-card">
+        <h3>Sentiment Summary</h3>
+
+        <p>
+            <strong>Overall Sentiment:</strong>
+            {{ video.sentiment_bin }}
+        </p>
+
+        <p>
+            <strong>Average Sentiment Score:</strong>
+            {{ video.avg_sentiment }}
+        </p>
+
+        <p>
+            <strong>Comments Analyzed:</strong>
+            {{ video.comments_analyzed }}
+        </p>
+
+        <p>
+            <strong>Positive Comments:</strong>
+            {{ video.positive_ratio }}
+        </p>
+
+        <p>
+            <strong>Negative Comments:</strong>
+            {{ video.negative_ratio }}
+        </p>
+    </section>
+
+    <section class="video-card">
+        <h3>Sentiment Distribution</h3>
+
+        <ul>
+            <li>
+                Positive:
+                {{ distribution.positive }}
+            </li>
+
+            <li>
+                Negative:
+                {{ distribution.negative }}
+            </li>
+
+            <li>
+                Neutral:
+                {{ distribution.neutral }}
+            </li>
+        </ul>
+    </section>
+
+    <section class="video-card">
+        <h3>Top Keywords</h3>
+
+        {% if keywords %}
+            <ul>
+                {% for keyword in keywords %}
+                    <li>
+                        <strong>{{ keyword.keyword }}</strong>
+                        -
+                        {{ keyword.family }}
+                        -
+                        {{ keyword.comment_count }}
+                        comments
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>No keywords were found.</p>
+        {% endif %}
+    </section>
+
+{% endif %}
+
+{% endblock %}

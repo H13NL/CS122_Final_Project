@@ -157,8 +157,100 @@ def create_youtube_client(logger: logging.Logger):
     logger.info("YouTube API client created successfully")
     return client
 
+def collect_video(
+    value: str,
+    logger: logging.Logger | None = None,
+) -> str:
+    """
+    Collect one YouTube video and save its data, comments,
+    keywords, and sentiment analysis.
+
+    Returns the collected video's ID.
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    video_id = extract_video_id(value)
+    youtube = create_youtube_client(logger)
+
+    with Database() as db:
+        if db.has_video(video_id):
+            logger.info(
+                "Video %s already collected; skipping",
+                video_id,
+            )
+            return video_id
+
+        video = fetch_video(video_id, youtube)
+
+        if not video:
+            raise ValueError(
+                f"Failed to fetch video {video_id}"
+            )
+
+        channel = get_channel_by_id(
+            video.channel_id,
+            youtube,
+        )
+
+        keywords = extract_keywords(
+            video.video_id,
+            video.comments,
+        )
+
+        if channel:
+            db.insert_channel(channel)
+
+        db.insert_video(video)
+
+        logger.info(
+            "Comments attached to video object: %d",
+            len(video.comments),
+        )
+
+        db.insert_many(
+            comments=video.comments,
+        )
+
+        saved_comments = db.con.execute(
+            """
+            SELECT COUNT(*)
+            FROM comments
+            WHERE video_id = ?
+            """,
+            (video.video_id,),
+        ).fetchone()[0]
+
+        logger.info(
+            "Comments saved to database for %s: %d",
+            video.video_id,
+            saved_comments,
+        )
+
+        db.insert_video_keywords(keywords)
+
+        sentiment = save_video_sentiment(
+            db,
+            video.video_id,
+            video.comments,
+        )
+
+    logger.info(
+        "Collected video %s (channel %s) with %d comments "
+        "and %d keywords; sentiment %s (%.4f)",
+        video.video_id,
+        video.channel_id,
+        len(video.comments),
+        len(keywords),
+        sentiment.sentiment,
+        sentiment.score,
+    )
+
+    return video.video_id
 
 def main() -> None:
+    os.makedirs("logs", exist_ok=True)
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
@@ -167,51 +259,28 @@ def main() -> None:
             logging.StreamHandler(),
         ],
     )
+
     logger = logging.getLogger(__name__)
 
     try:
-        video_id = prompt_for_video_id()
+        value = input(
+            "Enter YouTube video URL or ID: "
+        ).strip()
+
+        if not value:
+            print(
+                "Please enter a YouTube URL or an 11-character video ID."
+            )
+            return
+
+        collect_video(value, logger)
+
     except (EOFError, KeyboardInterrupt):
         print()
         logger.info("Collection cancelled")
-        return
 
-    youtube = create_youtube_client(logger)
-
-    with Database() as db:
-        if db.has_video(video_id):
-            logger.info("Video %s already collected; skipping", video_id)
-            return
-
-        video = fetch_video(video_id, youtube)
-        if not video:
-            logger.error("Failed to fetch video %s", video_id)
-            return
-
-        channel = get_channel_by_id(video.channel_id, youtube)
-        keywords = extract_keywords(video.video_id, video.comments)
-
-        if channel:
-            db.insert_channel(channel)
-        db.insert_video(video)
-        db.insert_many(comments=video.comments)
-        db.insert_video_keywords(keywords)
-        sentiment = save_video_sentiment(
-            db,
-            video.video_id,
-            video.comments,
-        )
-
-    logger.info(
-        "Collected video %s (channel %s) with %d comments and %d keywords; "
-        "sentiment %s (%.4f)",
-        video.video_id,
-        video.channel_id,
-        len(video.comments),
-        len(keywords),
-        sentiment.sentiment,
-        sentiment.score,
-    )
+    except ValueError as exc:
+        logger.error("%s", exc)
 
 
 if __name__ == "__main__":

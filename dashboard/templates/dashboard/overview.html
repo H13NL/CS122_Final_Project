@@ -1,0 +1,85 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+
+<h1>Video Overview</h1>
+
+<p>
+    View collected videos and their sentiment-analysis results.
+</p>
+
+{% if videos %}
+
+    {% for video in videos %}
+
+        <section class="video-card">
+            <h2>{{ video.title }}</h2>
+
+            <p>
+                <strong>Video ID:</strong>
+                {{ video.video_id }}
+            </p>
+
+            <p>
+                <strong>Views:</strong>
+                {{ video.view_count }}
+            </p>
+
+            <p>
+                <strong>Likes:</strong>
+                {{ video.like_count }}
+            </p>
+
+            <p>
+                <strong>Comments:</strong>
+                {{ video.comment_count }}
+            </p>
+
+            <p>
+                <strong>Comments Analyzed:</strong>
+                {{ video.comments_analyzed|default:"Not analyzed yet" }}
+            </p>
+
+            <p>
+                <strong>Overall Sentiment:</strong>
+                {{ video.sentiment_bin|default:"Not analyzed yet" }}
+            </p>
+
+            <p>
+                <strong>Average Sentiment:</strong>
+                {{ video.avg_sentiment|default:"Not analyzed yet" }}
+            </p>
+
+            <p>
+                <strong>Positive Comments:</strong>
+                {{ video.positive_ratio|default:"Not analyzed yet" }}
+            </p>
+
+            <p>
+                <strong>Negative Comments:</strong>
+                {{ video.negative_ratio|default:"Not analyzed yet" }}
+            </p>
+
+            <a
+                class="button"
+                href="{% url 'analysis' video.video_id %}"
+            >
+                View Analysis
+            </a>
+        </section>
+
+    {% endfor %}
+
+{% else %}
+
+    <p class="empty-message">
+        No videos have been collected yet.
+    </p>
+
+    <a class="button" href="{% url 'home' %}">
+        Collect a Video
+    </a>
+
+{% endif %}
+
+{% endblock %}
