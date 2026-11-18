@@ -610,7 +610,8 @@ class Database:
             SELECT
                 keyword,
                 family,
-                SUM(comment_count) AS comment_count
+                SUM(comment_count) AS comment_count,
+                MAX(COALESCE(score, 0)) AS score
             FROM keywords
             WHERE comment_count > 0
               AND family IN ({placeholders})
@@ -624,7 +625,7 @@ class Database:
 
         sql += """
             GROUP BY keyword, family
-            ORDER BY SUM(comment_count) DESC, keyword ASC
+            ORDER BY score DESC, SUM(comment_count) DESC, keyword ASC
         """
 
         if limit is not None:
