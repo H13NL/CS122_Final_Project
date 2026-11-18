@@ -126,6 +126,15 @@ SCHEMA = (
         FOREIGN KEY (video_id)
             REFERENCES videos (video_id)
     )""",
+    """CREATE TABLE IF NOT EXISTS keyword_embeddings (
+        keyword TEXT NOT NULL,
+        model TEXT NOT NULL,
+        dim INTEGER NOT NULL,
+        vector BLOB NOT NULL,
+        norm REAL NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (keyword, model)
+    )""",
 )
 
 
@@ -648,6 +657,94 @@ class Database:
             params.append(limit)
 
         return self._query(sql, tuple(params))
+
+    def distinct_keywords(self, video_id: Optional[str] = None) -> list[str]:
+        """Return every stored keyword, optionally for one video."""
+        sql = "SELECT DISTINCT keyword FROM keywords"
+        params = []
+
+        if video_id:
+            sql += " WHERE video_id = ?"
+            params.append(video_id)
+
+        sql += " ORDER BY keyword ASC"
+
+        rows = self.con.execute(sql, tuple(params))
+        return [row["keyword"] for row in rows]
+
+    def save_keyword_embeddings(self, rows: Iterable[tuple]) -> None:
+        """
+        Store keyword vectors.
+
+        Each row is (keyword, model, dim, vector_blob, norm).
+        """
+        created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+        self.con.executemany(
+            """
+            INSERT OR REPLACE INTO keyword_embeddings
+                (keyword, model, dim, vector, norm, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (keyword, model, dim, vector, norm, created_at)
+                for keyword, model, dim, vector, norm in rows
+            ],
+        )
+        self.con.commit()
+
+    def get_keyword_embeddings(
+        self,
+        model: str,
+        keywords: Optional[Iterable[str]] = None,
+    ) -> dict:
+        """Return stored vectors as {keyword: {dim, vector, norm}}."""
+        sql = """
+            SELECT keyword, dim, vector, norm
+            FROM keyword_embeddings
+            WHERE model = ?
+        """
+        params = [model]
+
+        if keywords is not None:
+            keywords = list(keywords)
+
+            if not keywords:
+                return {}
+
+            placeholders = ", ".join("?" for _ in keywords)
+            sql += f" AND keyword IN ({placeholders})"
+            params.extend(keywords)
+
+        return {
+            row["keyword"]: {
+                "dim": row["dim"],
+                "vector": row["vector"],
+                "norm": row["norm"],
+            }
+            for row in self.con.execute(sql, tuple(params))
+        }
+
+    def count_keyword_embeddings(self, model: str) -> int:
+        """Return the number of cached vectors for one model."""
+        row = self.con.execute(
+            """
+            SELECT COUNT(*)
+            FROM keyword_embeddings
+            WHERE model = ?
+            """,
+            (model,),
+        ).fetchone()
+
+        return row[0]
+
+    def clear_keyword_embeddings(self, model: str) -> None:
+        """Delete every cached vector for one model."""
+        self.con.execute(
+            "DELETE FROM keyword_embeddings WHERE model = ?",
+            (model,),
+        )
+        self.con.commit()
 
     def sentiment_distribution(self, video_id: str) -> dict:
         """Return comment counts grouped by sentiment."""
