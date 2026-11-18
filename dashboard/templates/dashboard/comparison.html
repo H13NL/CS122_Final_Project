@@ -1,0 +1,152 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+
+<h1>Video Comparison</h1>
+
+<p>
+    Select two or more videos to compare their performance and sentiment.
+</p>
+
+<form method="get">
+    <div class="video-selection">
+        {% for video in videos %}
+            <label class="video-option">
+                <input
+                    type="checkbox"
+                    name="videos"
+                    value="{{ video.video_id }}"
+                    {% if video.video_id in selected_video_ids %}
+                        checked
+                    {% endif %}
+                >
+
+                <span>{{ video.title }}</span>
+            </label>
+        {% empty %}
+            <p>No videos have been collected yet.</p>
+        {% endfor %}
+    </div>
+
+    {% if videos %}
+        <button class="button" type="submit">
+            Compare Selected Videos
+        </button>
+    {% endif %}
+</form>
+
+{% if comparison_results %}
+
+    <hr>
+
+    <h2>Comparison Results</h2>
+
+    <div class="comparison-grid">
+        {% for video in comparison_results %}
+            <section class="video-card">
+                <h3>{{ video.title }}</h3>
+
+                <p>
+                    <strong>Video ID:</strong>
+                    {{ video.video_id }}
+                </p>
+
+                <p>
+                    <strong>Views:</strong>
+                    {{ video.view_count }}
+                </p>
+
+                <p>
+                    <strong>Likes:</strong>
+                    {{ video.like_count }}
+                </p>
+
+                <p>
+                    <strong>Comments:</strong>
+                    {{ video.comment_count }}
+                </p>
+
+                <p>
+                    <strong>Comments Analyzed:</strong>
+                    {{ video.comments_analyzed|default:"Not analyzed" }}
+                </p>
+
+                <p>
+                    <strong>Overall Sentiment:</strong>
+                    {{ video.sentiment_bin|default:"Not analyzed" }}
+                </p>
+
+                <p>
+                    <strong>Average Sentiment:</strong>
+                    {{ video.avg_sentiment|default:"Not analyzed" }}
+                </p>
+
+                <p>
+                    <strong>Positive Comments:</strong>
+                    {{ video.positive_ratio|default:"Not analyzed" }}
+                </p>
+
+                <p>
+                    <strong>Negative Comments:</strong>
+                    {{ video.negative_ratio|default:"Not analyzed" }}
+                </p>
+
+                <h4>Top Keywords</h4>
+
+                {% if video.top_keywords %}
+                    <ul>
+                        {% for keyword in video.top_keywords %}
+                            <li>
+                                {{ keyword.keyword }}
+                                —
+                                {{ keyword.family }}
+                                —
+                                {{ keyword.comment_count }} comments
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p>No keywords found.</p>
+                {% endif %}
+            </section>
+        {% endfor %}
+    </div>
+
+{% elif selected_video_ids %}
+    <p>No comparison results were found.</p>
+{% endif %}
+
+<style>
+    .video-selection {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin: 24px 0;
+    }
+
+    .video-option {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px;
+        background-color: #f7f7f7;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+    }
+
+    .video-option input {
+        width: 18px;
+        height: 18px;
+    }
+
+    .comparison-grid {
+        display: grid;
+        grid-template-columns: repeat(
+            auto-fit,
+            minmax(300px, 1fr)
+        );
+        gap: 20px;
+    }
+</style>
+
+{% endblock %}

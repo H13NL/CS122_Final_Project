@@ -1,0 +1,88 @@
+{% extends "dashboard/base.html" %}
+
+{% block content %}
+
+<div class="home-content">
+    <h1>YouTube Comment Sentiment Analysis</h1>
+
+    <p>
+        Enter a YouTube video URL to collect and analyze its comments.
+    </p>
+
+    <form method="post" action="{% url 'fetch_video' %}">
+        {% csrf_token %}
+
+        <input
+            class="url-input"
+            type="url"
+            name="url"
+            placeholder="Paste a YouTube video URL here..."
+            required
+        >
+
+        <button class="fetch-button" type="submit">
+            Fetch Video
+        </button>
+    </form>
+
+    {% if error %}
+        <p class="error">
+            {{ error }}
+        </p>
+    {% endif %}
+</div>
+
+<style>
+    .home-content {
+        max-width: 750px;
+        margin: 80px auto;
+        text-align: center;
+    }
+
+    .home-content h1 {
+        font-size: 36px;
+        margin-bottom: 15px;
+    }
+
+    .home-content p {
+        color: #666;
+        font-size: 18px;
+    }
+
+    form {
+        margin-top: 35px;
+    }
+
+    .url-input {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 20px;
+        font-size: 18px;
+        border: 1px solid #bbb;
+        border-radius: 8px;
+    }
+
+    .fetch-button {
+        display: block;
+        margin: 20px auto 0;
+        padding: 14px 32px;
+        font-size: 17px;
+        color: white;
+        background-color: #d62828;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+    }
+
+    .fetch-button:hover {
+        background-color: #a91f1f;
+    }
+
+    .error {
+        color: #d62828 !important;
+        margin-top: 20px;
+    }
+</style>
+
+{% endblock %}
