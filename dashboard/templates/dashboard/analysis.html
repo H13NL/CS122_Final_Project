@@ -74,7 +74,11 @@
             <ul>
                 {% for keyword in keywords %}
                     <li>
-                        <strong>{{ keyword.keyword }}</strong>
+                        <a
+                            href="{% url 'explorer' %}?video={{ video.video_id }}&keyword={{ keyword.keyword|urlencode }}"
+                        >
+                            <strong>{{ keyword.keyword }}</strong>
+                        </a>
                         -
                         {{ keyword.family }}
                         -
@@ -86,6 +90,13 @@
         {% else %}
             <p>No keywords were found.</p>
         {% endif %}
+
+        <a
+            class="button"
+            href="{% url 'explorer' %}?video={{ video.video_id }}"
+        >
+            Explore Comments
+        </a>
     </section>
 
 {% endif %}
