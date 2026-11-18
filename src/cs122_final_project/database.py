@@ -113,6 +113,7 @@ SCHEMA = (
         keyword TEXT NOT NULL,
         family TEXT NOT NULL,
         comment_count INTEGER NOT NULL,
+        score REAL NOT NULL DEFAULT 0,
         PRIMARY KEY (video_id, keyword),
         FOREIGN KEY (video_id)
             REFERENCES videos (video_id)
@@ -155,7 +156,29 @@ class Database:
     def initialize(self) -> None:
         for statement in SCHEMA:
             self.c.execute(statement)
+        self._ensure_column(
+            "keywords",
+            "score",
+            "REAL NOT NULL DEFAULT 0",
+        )
         self.con.commit()
+
+    def _ensure_column(
+        self,
+        table: str,
+        column: str,
+        definition: str,
+    ) -> None:
+        """Add a column to an existing database created by an older schema."""
+        columns = {
+            row["name"]
+            for row in self.con.execute(f"PRAGMA table_info({table})")
+        }
+
+        if column not in columns:
+            self.con.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+            )
 
     def close(self) -> None:
         self.con.close()
@@ -257,7 +280,8 @@ class Database:
 
         keywords:
             Tuples containing:
-            (keyword, family, comment_count)
+            (keyword, family, comment_count) or
+            (keyword, family, comment_count, score)
 
         summary:
             Dictionary containing the keys in SUMMARY_KEYS. The value in
@@ -309,12 +333,18 @@ class Database:
         self.con.executemany(
             """
             INSERT INTO keywords
-                (video_id, keyword, family, comment_count)
-            VALUES (?, ?, ?, ?)
+                (video_id, keyword, family, comment_count, score)
+            VALUES (?, ?, ?, ?, ?)
             """,
             [
-                (video_id, keyword, family, count)
-                for keyword, family, count in keywords
+                (
+                    video_id,
+                    keyword,
+                    family,
+                    count,
+                    float(rest[0]) if rest else 0.0,
+                )
+                for keyword, family, count, *rest in keywords
             ],
         )
 
@@ -609,9 +639,9 @@ class Database:
         family: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> list:
-        """Return keyword counts for a video."""
+        """Return keyword counts for a video, ranked by significance."""
         sql = """
-            SELECT keyword, family, comment_count
+            SELECT keyword, family, comment_count, score
             FROM keywords
             WHERE video_id = ?
         """
@@ -628,7 +658,7 @@ class Database:
             params.append(family)
 
         sql += """
-            ORDER BY comment_count DESC, keyword ASC
+            ORDER BY score DESC, comment_count DESC, keyword ASC
         """
 
         if limit is not None:
