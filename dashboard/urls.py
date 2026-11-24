@@ -18,5 +18,10 @@ urlpatterns = [
         views.comparison,
         name="comparison",
     ),
+    path(
+        "explorer/",
+        views.explorer,
+        name="explorer",
+    ),
 
 ]

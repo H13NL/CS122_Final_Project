@@ -8,8 +8,10 @@ and keeps SQL out of the collection logic.
 """
 
 from datetime import datetime, timezone
+import re
 import sqlite3
 from contextlib import closing
+from functools import lru_cache
 from typing import Iterable, Optional
 
 from .channel import Channel
@@ -20,6 +22,9 @@ from .video import Video
 SENTIMENT_LABELS = ("positive", "negative", "neutral")
 
 KEYWORD_FAMILIES = ("positive", "negative", "neutral")
+
+# Only sentiment-bearing families belong in the Explorer keyword picker.
+DISPLAY_KEYWORD_FAMILIES = ("positive", "negative")
 
 COMMENT_SORT_COLUMNS = {
     "published_at",
@@ -35,6 +40,31 @@ SUMMARY_KEYS = (
     "negative_ratio",
     "sentiment_bin",
 )
+
+
+@lru_cache(maxsize=256)
+def _compiled_regexp(pattern: str) -> re.Pattern[str]:
+    """Compile and memoize one case-insensitive SQLite regexp."""
+    return re.compile(pattern, re.IGNORECASE)
+
+
+def _sqlite_regexp(pattern: str, value: Optional[str]) -> bool:
+    """SQLite REGEXP implementation using Python's regex engine."""
+    if not value:
+        return False
+
+    return _compiled_regexp(pattern).search(value) is not None
+
+
+def _escape_like(value: str) -> str:
+    """Escape LIKE wildcards so user input matches literally."""
+    return (
+        value
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
 
 SCHEMA = (
     """CREATE TABLE IF NOT EXISTS channels (
@@ -83,6 +113,7 @@ SCHEMA = (
         keyword TEXT NOT NULL,
         family TEXT NOT NULL,
         comment_count INTEGER NOT NULL,
+        score REAL NOT NULL DEFAULT 0,
         PRIMARY KEY (video_id, keyword),
         FOREIGN KEY (video_id)
             REFERENCES videos (video_id)
@@ -96,6 +127,15 @@ SCHEMA = (
         FOREIGN KEY (video_id)
             REFERENCES videos (video_id)
     )""",
+    """CREATE TABLE IF NOT EXISTS keyword_embeddings (
+        keyword TEXT NOT NULL,
+        model TEXT NOT NULL,
+        dim INTEGER NOT NULL,
+        vector BLOB NOT NULL,
+        norm REAL NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (keyword, model)
+    )""",
 )
 
 
@@ -105,12 +145,40 @@ class Database:
         self.con = sqlite3.connect(self.path)
         self.con.row_factory = sqlite3.Row
         self.con.execute("PRAGMA foreign_keys = 1")
+        self.con.create_function(
+            "regexp",
+            2,
+            _sqlite_regexp,
+            deterministic=True,
+        )
         self.c = self.con.cursor()
 
     def initialize(self) -> None:
         for statement in SCHEMA:
             self.c.execute(statement)
+        self._ensure_column(
+            "keywords",
+            "score",
+            "REAL NOT NULL DEFAULT 0",
+        )
         self.con.commit()
+
+    def _ensure_column(
+        self,
+        table: str,
+        column: str,
+        definition: str,
+    ) -> None:
+        """Add a column to an existing database created by an older schema."""
+        columns = {
+            row["name"]
+            for row in self.con.execute(f"PRAGMA table_info({table})")
+        }
+
+        if column not in columns:
+            self.con.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+            )
 
     def close(self) -> None:
         self.con.close()
@@ -212,7 +280,8 @@ class Database:
 
         keywords:
             Tuples containing:
-            (keyword, family, comment_count)
+            (keyword, family, comment_count) or
+            (keyword, family, comment_count, score)
 
         summary:
             Dictionary containing the keys in SUMMARY_KEYS. The value in
@@ -264,12 +333,18 @@ class Database:
         self.con.executemany(
             """
             INSERT INTO keywords
-                (video_id, keyword, family, comment_count)
-            VALUES (?, ?, ?, ?)
+                (video_id, keyword, family, comment_count, score)
+            VALUES (?, ?, ?, ?, ?)
             """,
             [
-                (video_id, keyword, family, count)
-                for keyword, family, count in keywords
+                (
+                    video_id,
+                    keyword,
+                    family,
+                    count,
+                    float(rest[0]) if rest else 0.0,
+                )
+                for keyword, family, count, *rest in keywords
             ],
         )
 
@@ -366,41 +441,59 @@ class Database:
 
     @staticmethod
     def _comment_filter(
-        video_id: str,
-        sentiment: Optional[str],
-        search: Optional[str],
+        video_id: Optional[str] = None,
+        sentiment: Optional[str] = None,
+        search: Optional[str] = None,
+        keyword: Optional[str] = None,
+        min_likes: Optional[int] = None,
+        include_sentiment: bool = True,
     ):
-        """Build the WHERE clause for comment queries."""
-        where = ["video_id = ?"]
-        params = [video_id]
+        """Build the WHERE clause shared by comment queries."""
+        where = []
+        params = []
 
-        if sentiment is not None:
-            if sentiment not in SENTIMENT_LABELS:
-                raise ValueError(
-                    f"sentiment must be one of {SENTIMENT_LABELS}"
-                )
+        if video_id:
+            where.append("c.video_id = ?")
+            params.append(video_id)
 
-            where.append("sentiment_label = ?")
-            params.append(sentiment)
+        if include_sentiment and sentiment is not None:
+            if sentiment == "unscored":
+                where.append("c.sentiment_label IS NULL")
+            else:
+                if sentiment not in SENTIMENT_LABELS:
+                    raise ValueError(
+                        f"sentiment must be one of {SENTIMENT_LABELS} "
+                        "or 'unscored'"
+                    )
+
+                where.append("c.sentiment_label = ?")
+                params.append(sentiment)
 
         if search:
-            escaped = (
-                search
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_")
-            )
+            for term in search.split():
+                where.append("c.text LIKE ? ESCAPE '\\'")
+                params.append(f"%{_escape_like(term)}%")
 
-            where.append("text LIKE ? ESCAPE '\\'")
-            params.append(f"%{escaped}%")
+        if keyword:
+            where.append("c.text REGEXP ?")
+            params.append(rf"\b{re.escape(keyword)}\b")
 
-        return " AND ".join(where), params
+        if min_likes is not None:
+            if min_likes < 0:
+                raise ValueError("min_likes must be zero or greater")
+
+            where.append("c.like_count >= ?")
+            params.append(min_likes)
+
+        return (" AND ".join(where) or "1=1"), params
 
     def get_comments(
         self,
-        video_id: str,
+        video_id: Optional[str] = None,
         sentiment: Optional[str] = None,
         search: Optional[str] = None,
+        keyword: Optional[str] = None,
+        min_likes: Optional[int] = None,
         order_by: str = "published_at",
         descending: bool = True,
         limit: int = 50,
@@ -413,19 +506,23 @@ class Database:
             )
 
         where, params = self._comment_filter(
-            video_id,
-            sentiment,
-            search,
+            video_id=video_id,
+            sentiment=sentiment,
+            search=search,
+            keyword=keyword,
+            min_likes=min_likes,
         )
 
         direction = "DESC" if descending else "ASC"
 
         return self._query(
             f"""
-            SELECT *
-            FROM comments
+            SELECT c.*, v.title AS video_title
+            FROM comments c
+            LEFT JOIN videos v
+                ON v.video_id = c.video_id
             WHERE {where}
-            ORDER BY {order_by} {direction}, comment_id
+            ORDER BY c.{order_by} {direction}, c.comment_id
             LIMIT ?
             OFFSET ?
             """,
@@ -434,21 +531,25 @@ class Database:
 
     def count_comments(
         self,
-        video_id: str,
+        video_id: Optional[str] = None,
         sentiment: Optional[str] = None,
         search: Optional[str] = None,
+        keyword: Optional[str] = None,
+        min_likes: Optional[int] = None,
     ) -> int:
         """Return the number of comments matching the filters."""
         where, params = self._comment_filter(
-            video_id,
-            sentiment,
-            search,
+            video_id=video_id,
+            sentiment=sentiment,
+            search=search,
+            keyword=keyword,
+            min_likes=min_likes,
         )
 
         row = self.con.execute(
             f"""
             SELECT COUNT(*)
-            FROM comments
+            FROM comments c
             WHERE {where}
             """,
             params,
@@ -456,15 +557,92 @@ class Database:
 
         return row[0]
 
+    def sentiment_facets(
+        self,
+        video_id: Optional[str] = None,
+        search: Optional[str] = None,
+        keyword: Optional[str] = None,
+        min_likes: Optional[int] = None,
+    ) -> dict:
+        """Count comments per sentiment label under the non-sentiment filters."""
+        where, params = self._comment_filter(
+            video_id=video_id,
+            search=search,
+            keyword=keyword,
+            min_likes=min_likes,
+            include_sentiment=False,
+        )
+
+        result = {
+            "positive": 0,
+            "negative": 0,
+            "neutral": 0,
+            "unscored": 0,
+        }
+
+        rows = self.con.execute(
+            f"""
+            SELECT
+                COALESCE(c.sentiment_label, 'unscored') AS label,
+                COUNT(*) AS count
+            FROM comments c
+            WHERE {where}
+            GROUP BY label
+            """,
+            params,
+        )
+
+        for row in rows:
+            if row["label"] in result:
+                result[row["label"]] = row["count"]
+
+        return result
+
+    def keyword_options(
+        self,
+        video_id: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> list:
+        """Return sentiment keywords that actually occur in comments."""
+        placeholders = ", ".join("?" for _ in DISPLAY_KEYWORD_FAMILIES)
+
+        sql = f"""
+            SELECT
+                keyword,
+                family,
+                SUM(comment_count) AS comment_count,
+                MAX(COALESCE(score, 0)) AS score
+            FROM keywords
+            WHERE comment_count > 0
+              AND family IN ({placeholders})
+        """
+
+        params = list(DISPLAY_KEYWORD_FAMILIES)
+
+        if video_id:
+            sql += " AND video_id = ?"
+            params.append(video_id)
+
+        sql += """
+            GROUP BY keyword, family
+            ORDER BY score DESC, SUM(comment_count) DESC, keyword ASC
+        """
+
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+
+        return self._query(sql, tuple(params))
+
     def get_keywords(
         self,
         video_id: str,
         family: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> list:
-        """Return keyword counts for a video."""
+        """Return keyword counts for a video, ranked by significance."""
         sql = """
-            SELECT keyword, family, comment_count
+            SELECT keyword, family, comment_count, score
             FROM keywords
             WHERE video_id = ?
         """
@@ -481,7 +659,7 @@ class Database:
             params.append(family)
 
         sql += """
-            ORDER BY comment_count DESC, keyword ASC
+            ORDER BY score DESC, comment_count DESC, keyword ASC
         """
 
         if limit is not None:
@@ -510,6 +688,94 @@ class Database:
             params.append(limit)
 
         return self._query(sql, tuple(params))
+
+    def distinct_keywords(self, video_id: Optional[str] = None) -> list[str]:
+        """Return every stored keyword, optionally for one video."""
+        sql = "SELECT DISTINCT keyword FROM keywords"
+        params = []
+
+        if video_id:
+            sql += " WHERE video_id = ?"
+            params.append(video_id)
+
+        sql += " ORDER BY keyword ASC"
+
+        rows = self.con.execute(sql, tuple(params))
+        return [row["keyword"] for row in rows]
+
+    def save_keyword_embeddings(self, rows: Iterable[tuple]) -> None:
+        """
+        Store keyword vectors.
+
+        Each row is (keyword, model, dim, vector_blob, norm).
+        """
+        created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+        self.con.executemany(
+            """
+            INSERT OR REPLACE INTO keyword_embeddings
+                (keyword, model, dim, vector, norm, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (keyword, model, dim, vector, norm, created_at)
+                for keyword, model, dim, vector, norm in rows
+            ],
+        )
+        self.con.commit()
+
+    def get_keyword_embeddings(
+        self,
+        model: str,
+        keywords: Optional[Iterable[str]] = None,
+    ) -> dict:
+        """Return stored vectors as {keyword: {dim, vector, norm}}."""
+        sql = """
+            SELECT keyword, dim, vector, norm
+            FROM keyword_embeddings
+            WHERE model = ?
+        """
+        params = [model]
+
+        if keywords is not None:
+            keywords = list(keywords)
+
+            if not keywords:
+                return {}
+
+            placeholders = ", ".join("?" for _ in keywords)
+            sql += f" AND keyword IN ({placeholders})"
+            params.extend(keywords)
+
+        return {
+            row["keyword"]: {
+                "dim": row["dim"],
+                "vector": row["vector"],
+                "norm": row["norm"],
+            }
+            for row in self.con.execute(sql, tuple(params))
+        }
+
+    def count_keyword_embeddings(self, model: str) -> int:
+        """Return the number of cached vectors for one model."""
+        row = self.con.execute(
+            """
+            SELECT COUNT(*)
+            FROM keyword_embeddings
+            WHERE model = ?
+            """,
+            (model,),
+        ).fetchone()
+
+        return row[0]
+
+    def clear_keyword_embeddings(self, model: str) -> None:
+        """Delete every cached vector for one model."""
+        self.con.execute(
+            "DELETE FROM keyword_embeddings WHERE model = ?",
+            (model,),
+        )
+        self.con.commit()
 
     def sentiment_distribution(self, video_id: str) -> dict:
         """Return comment counts grouped by sentiment."""

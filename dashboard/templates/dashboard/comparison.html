@@ -97,7 +97,11 @@
                     <ul>
                         {% for keyword in video.top_keywords %}
                             <li>
-                                {{ keyword.keyword }}
+                                <a
+                                    href="{% url 'explorer' %}?video={{ video.video_id }}&keyword={{ keyword.keyword|urlencode }}"
+                                >
+                                    {{ keyword.keyword }}
+                                </a>
                                 —
                                 {{ keyword.family }}
                                 —
